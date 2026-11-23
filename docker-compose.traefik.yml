@@ -1,0 +1,36 @@
+# Stack opcional si quieres levantar también el propio contenedor de Traefik v3 junto con €conogenius:
+# Uso: docker compose -f docker-compose.traefik.yml -f docker-compose.yml up -d --build
+
+services:
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=${TRAEFIK_NETWORK:-traefik-public}"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@ejemplo.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "traefik_letsencrypt:/letsencrypt"
+    networks:
+      - traefik-public
+
+volumes:
+  traefik_letsencrypt:
+
+networks:
+  traefik-public:
+    name: ${TRAEFIK_NETWORK:-traefik-public}
+    external: false
