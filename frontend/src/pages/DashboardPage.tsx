@@ -60,7 +60,7 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
 }
 
 export function DashboardPage() {
-  const { accounts, workspace, seedFamilyAccounts, reloadCatalog } = useAuth()
+  const { accounts, workspace, reloadCatalog } = useAuth()
   const { format, convert } = useCurrency()
   const navigate = useNavigate()
 
@@ -70,7 +70,6 @@ export function DashboardPage() {
   const [dateTo, setDateTo] = useState<string>('')
   const [summary, setSummary] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(true)
-  const [seeding, setSeeding] = useState(false)
   const [accountModalOpen, setAccountModalOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [settleModal, setSettleModal] = useState<{ owner?: string; amount: number; count: number } | null>(null)
@@ -114,16 +113,6 @@ export function DashboardPage() {
     const lastDay = new Date(y, m, 0).getDate()
     setDateFrom(`${ym}-01`)
     setDateTo(`${ym}-${String(lastDay).padStart(2, '0')}`)
-  }
-
-  const handleSeedAccounts = async () => {
-    setSeeding(true)
-    try {
-      await seedFamilyAccounts()
-      await fetchSummary()
-    } finally {
-      setSeeding(false)
-    }
   }
 
   const donutData = useMemo(() => {
@@ -218,16 +207,7 @@ export function DashboardPage() {
               className="btn bg-slate-700 hover:bg-slate-600 text-white"
             >
               <Plus className="h-4 w-4" />
-              <span>Añadir cuenta individual</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleSeedAccounts}
-              disabled={seeding}
-              className="btn bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 text-xs"
-            >
-              <Users className="h-3.5 w-3.5" />
-              <span>{seeding ? 'Creando...' : 'Pack rápido por defecto'}</span>
+              <span>Añadir cuenta (1 o Cuenta + Tarjeta)</span>
             </button>
           </div>
         </div>

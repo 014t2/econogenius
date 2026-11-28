@@ -8,6 +8,7 @@ export function AuthPage() {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [autofillLocked, setAutofillLocked] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -94,6 +95,9 @@ export function AuthPage() {
               type="button"
               onClick={() => {
                 setMode('login')
+                setEmail('')
+                setPassword('')
+                setAutofillLocked(true)
                 setError(null)
               }}
               className={`flex-1 py-2 rounded-lg text-sm font-semibold transition ${
@@ -106,6 +110,10 @@ export function AuthPage() {
               type="button"
               onClick={() => {
                 setMode('register')
+                setFullName('')
+                setEmail('')
+                setPassword('')
+                setAutofillLocked(true)
                 setError(null)
               }}
               className={`flex-1 py-2 rounded-lg text-sm font-semibold transition ${
@@ -133,14 +141,24 @@ export function AuthPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form
+            key={mode}
+            onSubmit={handleSubmit}
+            autoComplete="off"
+            className="space-y-4"
+          >
             {mode === 'register' && (
               <div>
                 <label className="label">Nombre completo</label>
                 <input
                   type="text"
+                  name="fc_full_name"
                   required
-                  placeholder="Ej. Olatz Etxeberria"
+                  autoComplete="off"
+                  readOnly={autofillLocked}
+                  onFocus={() => setAutofillLocked(false)}
+                  onPointerDown={() => setAutofillLocked(false)}
+                  placeholder="Ej. Laura García"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   className="input"
@@ -152,8 +170,13 @@ export function AuthPage() {
               <label className="label">Correo electrónico</label>
               <input
                 type="email"
+                name={mode === 'register' ? 'fc_register_email' : 'fc_login_email'}
                 required
-                placeholder="olatz@ejemplo.eus"
+                autoComplete="off"
+                readOnly={autofillLocked}
+                onFocus={() => setAutofillLocked(false)}
+                onPointerDown={() => setAutofillLocked(false)}
+                placeholder="ejemplo@gmail.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="input"
@@ -164,8 +187,13 @@ export function AuthPage() {
               <label className="label">Contraseña</label>
               <input
                 type="password"
+                name={mode === 'register' ? 'fc_register_password' : 'fc_login_password'}
                 required
                 minLength={8}
+                autoComplete="new-password"
+                readOnly={autofillLocked}
+                onFocus={() => setAutofillLocked(false)}
+                onPointerDown={() => setAutofillLocked(false)}
                 placeholder={mode === 'register' ? 'Mínimo 8 caracteres (letras y números)' : '••••••••'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

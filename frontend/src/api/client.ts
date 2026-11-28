@@ -79,6 +79,8 @@ export const Api = {
 
   workspaces: () => api<WorkspaceInfo[]>('/workspaces'),
   createWorkspace: (name: string) => api<WorkspaceInfo>('/workspaces', { method: 'POST', json: { name } }),
+  updateWorkspace: (id: number, name: string) => api<WorkspaceInfo>(`/workspaces/${id}`, { method: 'PATCH', json: { name } }),
+  deleteWorkspace: (id: number) => api<void>(`/workspaces/${id}`, { method: 'DELETE' }),
   members: (id: number) => api<Member[]>(`/workspaces/${id}/members`),
   addMember: (id: number, email: string) => api<Member>(`/workspaces/${id}/members`, { method: 'POST', json: { email } }),
   removeMember: (id: number, userId: number) => api<void>(`/workspaces/${id}/members/${userId}`, { method: 'DELETE' }),

@@ -112,8 +112,6 @@ RULES: list[tuple[str, str, str, int]] = [
 TRANSFER_KEYWORDS: list[str] = [
     "OP.NET",
     "NET ER.",
-    "TRANSF. IOSU",
-    "ETXEA OLATZ",
     "TRASPASO PROPIO",
     "TRANSFERENCIA PROPIA",
     "TRASPASO ENTRE CUENTAS",

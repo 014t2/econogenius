@@ -44,7 +44,7 @@ const FORMAT_LABELS: Record<string, string> = {
 }
 
 export function ImportPage() {
-  const { accounts, categories, workspace, reloadCatalog, seedFamilyAccounts } = useAuth()
+  const { accounts, categories, workspace, reloadCatalog } = useAuth()
   const { format } = useCurrency()
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -195,24 +195,24 @@ export function ImportPage() {
               Primero necesitas al menos una cuenta destino creada
             </div>
             <p className="text-xs text-amber-800">
-              Crea tus cuentas de cualquier banco desde Cuentas y Reglas o genera en 1 clic el pack familiar inicial.
+              Crea tu cuenta bancaria (y opcionalmente su tarjeta vinculada en el mismo paso) antes de subir tu extracto.
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => seedFamilyAccounts()}
-              className="btn bg-amber-600 hover:bg-amber-700 text-white"
-            >
-              <Sparkles className="h-4 w-4" />
-              Crear pack 5 cuentas
-            </button>
+          <div className="flex flex-wrap gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setAccountModalOpen(true)}
+              className="btn bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              <Plus className="h-4 w-4" />
+              Crear cuenta (1 o Cuenta + Tarjeta)
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/settings')}
               className="btn-outline"
             >
-              Crear cuenta y saldo actual
+              Ir a Cuentas y Reglas
             </button>
           </div>
         </div>

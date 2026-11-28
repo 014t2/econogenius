@@ -350,4 +350,30 @@ def test_subscriptions_budgets_goals_onboarding_backup_and_rgpd(client):
     assert client.get("/api/auth/me", headers=auth(token)).status_code == 401
 
 
+def test_workspace_rename_and_delete(client):
+    token = register(client, "espacios@example.com", "Alex")["access_token"]
+    wss = client.get("/api/workspaces", headers=auth(token)).json()
+    assert len(wss) == 1
+    personal_id = wss[0]["id"]
+
+    # No se puede eliminar el único espacio restante
+    r_del_last = client.delete(f"/api/workspaces/{personal_id}", headers=auth(token))
+    assert r_del_last.status_code == 400
+
+    # Crear segundo espacio compartido, renombrarlo y eliminarlo
+    fam = client.post("/api/workspaces", json={"name": "Familia Test"}, headers=auth(token)).json()
+    r_ren = client.patch(
+        f"/api/workspaces/{fam['id']}",
+        json={"name": "Familia Renombrada"},
+        headers=auth(token),
+    )
+    assert r_ren.status_code == 200 and r_ren.json()["name"] == "Familia Renombrada"
+
+    r_del = client.delete(f"/api/workspaces/{fam['id']}", headers=auth(token))
+    assert r_del.status_code == 204
+    wss_after = client.get("/api/workspaces", headers=auth(token)).json()
+    assert len(wss_after) == 1 and wss_after[0]["id"] == personal_id
+
+
+
 

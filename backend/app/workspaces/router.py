@@ -33,6 +33,10 @@ class WorkspaceIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
 
 
+class WorkspacePatch(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
 class MemberIn(BaseModel):
     email: EmailStr
 
@@ -170,6 +174,56 @@ def create_shared_workspace(data: WorkspaceIn, user: User = Depends(get_current_
     ws = create_workspace(db, data.name, user, is_personal=False)
     db.commit()
     return WorkspaceOut(id=ws.id, name=ws.name, is_personal=False, role="owner")
+
+
+@router.patch("/{ws_id}", response_model=WorkspaceOut)
+def rename_workspace(
+    ws_id: int,
+    data: WorkspacePatch,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    m = _membership(db, ws_id, user)
+    if m.role != "owner":
+        raise HTTPException(403, "Solo el propietario puede renombrar el espacio")
+    ws = db.get(Workspace, ws_id)
+    if ws is None:
+        raise HTTPException(404, "Espacio de trabajo no encontrado")
+    ws.name = data.name.strip()
+    db.commit()
+    db.refresh(ws)
+    return WorkspaceOut(
+        id=ws.id,
+        name=ws.name,
+        is_personal=ws.is_personal,
+        role=m.role,
+        target_needs=ws.target_needs or 50,
+        target_wants=ws.target_wants or 30,
+        target_savings=ws.target_savings or 20,
+    )
+
+
+@router.delete("/{ws_id}", status_code=204)
+def delete_workspace(
+    ws_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Elimina un espacio de trabajo y todos sus datos asociados (cuentas, movimientos, reglas, metas)."""
+    m = _membership(db, ws_id, user)
+    if m.role != "owner":
+        raise HTTPException(403, "Solo el propietario puede eliminar el espacio")
+    user_workspaces = list_user_workspaces(db, user)
+    if len(user_workspaces) <= 1:
+        raise HTTPException(
+            400,
+            "Debes conservar al menos un espacio activo. Si deseas borrar todo, usa la opción de eliminar tu cuenta en RGPD.",
+        )
+    ws = db.get(Workspace, ws_id)
+    if ws is None:
+        raise HTTPException(404, "Espacio de trabajo no encontrado")
+    db.delete(ws)
+    db.commit()
 
 
 @router.get("/{ws_id}/members", response_model=list[MemberOut])

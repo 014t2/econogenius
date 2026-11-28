@@ -13,6 +13,7 @@ import {
   Tag,
   Trash2,
   Upload,
+  UserPlus,
   Users,
   Wallet,
   Wand2,
@@ -23,10 +24,21 @@ import { useCurrency } from '../context/CurrencyContext'
 import { GROUP_META } from '../components/Layout'
 import { OnboardingWizardModal } from '../components/OnboardingWizardModal'
 import { PageTutorialBanner } from '../components/PageTutorialBanner'
-import type { AccountType, Group, Rule } from '../types'
+import type { AccountType, Group, Member, Rule, WorkspaceInfo } from '../types'
 
 export function AccountsAndRulesPage() {
-  const { accounts, categories, workspace, reloadCatalog, seedFamilyAccounts, logout } = useAuth()
+  const {
+    user,
+    workspace,
+    accounts,
+    categories,
+    selectWorkspace,
+    createSharedWorkspace,
+    renameWorkspace,
+    deleteWorkspace,
+    reloadCatalog,
+    logout,
+  } = useAuth()
   const { format } = useCurrency()
 
   const [rules, setRules] = useState<Rule[]>([])
@@ -35,6 +47,14 @@ export function AccountsAndRulesPage() {
   const [deleteAccountModal, setDeleteAccountModal] = useState(false)
   const [deletingMe, setDeletingMe] = useState(false)
   const restoreInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Gestión de Espacios (crear, renombrar, miembros y eliminar)
+  const [newSpaceName, setNewSpaceName] = useState('')
+  const [wsMembers, setWsMembers] = useState<Member[]>([])
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [wsToDelete, setWsToDelete] = useState<WorkspaceInfo | null>(null)
+  const [deletingWs, setDeletingWs] = useState(false)
+  const [wsActionError, setWsActionError] = useState<string | null>(null)
 
   // Nueva cuenta (soporta cualquier banco y saldo actual en el banco)
   const [accName, setAccName] = useState('')
@@ -45,6 +65,8 @@ export function AccountsAndRulesPage() {
   const [accIban, setAccIban] = useState('')
   const [accCard, setAccCard] = useState('')
   const [accBalance, setAccBalance] = useState('')
+  const [accCreateLinkedCard, setAccCreateLinkedCard] = useState(false)
+  const [accLinkedCardName, setAccLinkedCardName] = useState('')
   const [editingBalances, setEditingBalances] = useState<Record<number, string>>({})
 
   const bankAccounts = accounts.filter((a) => a.type !== 'credit_card')
@@ -61,7 +83,9 @@ export function AccountsAndRulesPage() {
 
   const loadRules = useCallback(async () => {
     if (!workspace) return
-    setRules(await Api.rules())
+    const [rList, mList] = await Promise.all([Api.rules(), Api.members(workspace.id)])
+    setRules(rList)
+    setWsMembers(mList)
   }, [workspace])
 
   useEffect(() => {
@@ -75,24 +99,40 @@ export function AccountsAndRulesPage() {
       accBankSelect === 'Otra entidad' ? accCustomBank.trim() || 'Otra entidad' : accBankSelect
     const parsedBalance = accBalance.trim() === '' ? 0 : parseFloat(accBalance.replace(',', '.'))
     const balanceValue = Number.isFinite(parsedBalance) ? parsedBalance : 0
-    await Api.createAccount({
+    const created = await Api.createAccount({
       name: accName.trim(),
       type: accType,
       bank: chosenBank,
-      iban: accIban.trim() || null,
-      card_number: accCard.trim() || null,
+      iban: accType !== 'credit_card' ? accIban.trim() || null : null,
+      card_number: accType === 'credit_card' ? accCard.trim() || null : null,
       linked_account_id: accType === 'credit_card' && accLinkedId !== '' ? Number(accLinkedId) : null,
       initial_balance: balanceValue,
       current_balance: balanceValue,
     })
+    let createdMsg = `Cuenta «${accName.trim()}» creada con saldo actual de ${format(balanceValue)}.`
+    if (accType !== 'credit_card' && accCreateLinkedCard) {
+      const cardTitle = accLinkedCardName.trim() || `Tarjeta ${accName.trim()}`
+      await Api.createAccount({
+        name: cardTitle,
+        type: 'credit_card',
+        bank: chosenBank,
+        card_number: accCard.trim() || null,
+        linked_account_id: created.id,
+        initial_balance: 0,
+        current_balance: 0,
+      })
+      createdMsg = `Creadas 2 cuentas: «${accName.trim()}» (${format(balanceValue)}) y «${cardTitle}» vinculada.`
+    }
     setAccName('')
     setAccCustomBank('')
     setAccIban('')
     setAccCard('')
     setAccBalance('')
     setAccLinkedId('')
+    setAccCreateLinkedCard(false)
+    setAccLinkedCardName('')
     await reloadCatalog()
-    setToast(`Cuenta «${accName.trim()}» creada con saldo actual de ${format(balanceValue)}.`)
+    setToast(createdMsg)
     setTimeout(() => setToast(null), 4000)
   }
 
@@ -197,6 +237,240 @@ export function AccountsAndRulesPage() {
         </div>
       )}
 
+      {/* Apartado de Gestión de Espacios (Crear, Renombrar, Miembros y Eliminar) */}
+      <div className="card p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-2xl bg-blue-50 text-primary-accent shrink-0">
+              <Building2 className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-ink">
+                Gestión de Espacios (Personales y Compartidos)
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Cambia entre espacios, crea nuevos espacios familiares o compartidos, gestiona sus miembros,
+                renómbralos o elimina los que ya no necesites.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {wsActionError && (
+          <div className="rounded-xl bg-red-50 border border-red-200 px-3.5 py-2.5 text-xs font-medium text-red-700">
+            {wsActionError}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {(user?.workspaces ?? []).map((w) => {
+            const isActive = workspace?.id === w.id
+            const isOwner = w.role === 'owner'
+            const canDelete = isOwner && (user?.workspaces.length ?? 0) > 1
+
+            return (
+              <div
+                key={w.id}
+                className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 transition ${
+                  isActive
+                    ? 'border-primary-accent bg-blue-50/40 ring-1 ring-primary-accent'
+                    : 'border-line bg-slate-50/60'
+                }`}
+              >
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-sm text-ink truncate">
+                          {w.is_personal ? `🔒 ${w.name}` : `👨‍👩‍👧 ${w.name}`}
+                        </span>
+                        {isActive && (
+                          <span className="chip bg-primary-accent text-white text-[10px] font-semibold">
+                            Activo
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        {w.is_personal ? 'Espacio privado personal' : 'Espacio compartido'} · Rol:{' '}
+                        <strong>{isOwner ? 'Propietario' : 'Miembro'}</strong>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {isOwner && (
+                        <button
+                          type="button"
+                          title={`Renombrar «${w.name}»`}
+                          onClick={async () => {
+                            const nextName = prompt('Nuevo nombre para el espacio:', w.name)
+                            if (!nextName || !nextName.trim() || nextName.trim() === w.name) return
+                            setWsActionError(null)
+                            try {
+                              await renameWorkspace(w.id, nextName.trim())
+                              setToast(`Espacio renombrado a «${nextName.trim()}».`)
+                              setTimeout(() => setToast(null), 3500)
+                            } catch (err) {
+                              setWsActionError(err instanceof Error ? err.message : 'No se pudo renombrar')
+                            }
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-primary-accent hover:bg-blue-50"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {isOwner && (
+                        <button
+                          type="button"
+                          disabled={!canDelete}
+                          title={
+                            canDelete
+                              ? `Eliminar espacio «${w.name}»`
+                              : 'Debes conservar al menos un espacio activo'
+                          }
+                          onClick={() => {
+                            setWsActionError(null)
+                            setWsToDelete(w)
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-line flex items-center justify-between gap-2">
+                  {isActive ? (
+                    <span className="text-[11px] font-semibold text-primary-accent">
+                      ✓ Viendo este espacio ahora
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => selectWorkspace(w)}
+                      className="btn-outline py-1 px-2.5 text-xs"
+                    >
+                      Cambiar a este espacio
+                    </button>
+                  )}
+
+                  {canDelete && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWsActionError(null)
+                        setWsToDelete(w)
+                      }}
+                      className="text-[11px] font-semibold text-red-600 hover:underline"
+                    >
+                      Eliminar
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Crear nuevo espacio compartido y miembros del espacio activo */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-3 border-t border-line">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault()
+              if (!newSpaceName.trim()) return
+              setWsActionError(null)
+              try {
+                const created = await createSharedWorkspace(newSpaceName.trim())
+                setNewSpaceName('')
+                setToast(`Espacio «${created.name}» creado y activado.`)
+                setTimeout(() => setToast(null), 4000)
+              } catch (err) {
+                setWsActionError(err instanceof Error ? err.message : 'No se pudo crear el espacio')
+              }
+            }}
+            className="space-y-2"
+          >
+            <label className="label">Crear nuevo espacio compartido / familiar</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                required
+                placeholder="Ej. Familia García & López / Piso compartido"
+                value={newSpaceName}
+                onChange={(e) => setNewSpaceName(e.target.value)}
+                className="input flex-1 text-xs"
+              />
+              <button type="submit" className="btn-accent text-xs shrink-0">
+                <Plus className="h-4 w-4" />
+                <span>Crear espacio</span>
+              </button>
+            </div>
+          </form>
+
+          {workspace && !workspace.is_personal && (
+            <div className="space-y-2">
+              <label className="label">Miembros de «{workspace.name}»</label>
+              <div className="flex flex-wrap gap-1.5">
+                {wsMembers.map((m) => (
+                  <span
+                    key={m.user_id}
+                    className="chip bg-slate-100 text-slate-700 border border-line"
+                  >
+                    <span>
+                      {m.full_name} ({m.email})
+                    </span>
+                    {m.user_id !== user?.id && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await Api.removeMember(workspace.id, m.user_id)
+                          setWsMembers(await Api.members(workspace.id))
+                        }}
+                        className="text-red-500 hover:text-red-700 ml-1"
+                        title="Quitar miembro"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  if (!inviteEmail.trim()) return
+                  setWsActionError(null)
+                  try {
+                    await Api.addMember(workspace.id, inviteEmail.trim())
+                    setInviteEmail('')
+                    setWsMembers(await Api.members(workspace.id))
+                    setToast('Miembro añadido al espacio compartido.')
+                    setTimeout(() => setToast(null), 3500)
+                  } catch (err) {
+                    setWsActionError(err instanceof Error ? err.message : 'No se pudo invitar al miembro')
+                  }
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="email"
+                  required
+                  placeholder="Invitar por email (ej. pareja@gmail.com)"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  className="input flex-1 text-xs"
+                />
+                <button type="submit" className="btn-outline text-xs shrink-0">
+                  <UserPlus className="h-3.5 w-3.5 text-primary-accent" />
+                  <span>Invitar</span>
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Gestión Multi-Cuenta y Multi-Banco */}
       <div className="card p-6 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -215,13 +489,6 @@ export function AccountsAndRulesPage() {
             >
               <Sparkles className="h-3.5 w-3.5" />
               Asistente Personalizable (Individual / Pareja / Familia)
-            </button>
-            <button
-              type="button"
-              onClick={() => seedFamilyAccounts()}
-              className="btn-outline text-xs"
-            >
-              Pack rápido por defecto
             </button>
           </div>
         </div>
@@ -478,9 +745,32 @@ export function AccountsAndRulesPage() {
               className="input border-emerald-300 focus:border-emerald-600 font-semibold"
             />
           </div>
-          <button type="submit" className="btn-accent">
+          {accType !== 'credit_card' && (
+            <div className="sm:col-span-2 lg:col-span-7 p-3 rounded-xl bg-amber-50/70 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <label className="inline-flex items-center gap-2 text-xs font-semibold text-amber-950 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={accCreateLinkedCard}
+                  onChange={(e) => setAccCreateLinkedCard(e.target.checked)}
+                  className="rounded text-amber-600"
+                />
+                <CreditCard className="h-4 w-4 text-amber-600 shrink-0" />
+                <span>Crear también su tarjeta vinculada a la vez (2 cuentas: Cuenta Corriente + Tarjeta)</span>
+              </label>
+              {accCreateLinkedCard && (
+                <input
+                  type="text"
+                  placeholder={`Nombre tarjeta (por defecto: Tarjeta ${accName.trim() || 'Principal'})`}
+                  value={accLinkedCardName}
+                  onChange={(e) => setAccLinkedCardName(e.target.value)}
+                  className="input text-xs bg-white sm:w-72"
+                />
+              )}
+            </div>
+          )}
+          <button type="submit" className="btn-accent sm:col-span-2 lg:col-span-2">
             <Plus className="h-4 w-4" />
-            Añadir Cuenta
+            {accType !== 'credit_card' && accCreateLinkedCard ? 'Crear Cuenta + Tarjeta (2)' : 'Añadir Cuenta'}
           </button>
         </form>
       </div>
@@ -816,6 +1106,61 @@ export function AccountsAndRulesPage() {
           setTimeout(() => setToast(null), 4000)
         }}
       />
+
+      {wsToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+          <div className="card w-full max-w-md p-6 space-y-4 animate-fade-up">
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-ink">
+                  ¿Eliminar el espacio «{wsToDelete.name}»?
+                </h3>
+                <p className="text-xs text-slate-600 mt-1">
+                  Se eliminarán de forma permanente todas las cuentas bancarias, tarjetas, reglas, objetivos de ahorro y
+                  transacciones de este espacio. Esta acción no se puede deshacer.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-line">
+              <button
+                type="button"
+                disabled={deletingWs}
+                onClick={() => setWsToDelete(null)}
+                className="btn-outline text-xs"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={deletingWs}
+                onClick={async () => {
+                  setDeletingWs(true)
+                  setWsActionError(null)
+                  try {
+                    const removedName = wsToDelete.name
+                    await deleteWorkspace(wsToDelete.id)
+                    setWsToDelete(null)
+                    setToast(`Espacio «${removedName}» eliminado correctamente.`)
+                    setTimeout(() => setToast(null), 4000)
+                  } catch (err) {
+                    setWsActionError(err instanceof Error ? err.message : 'No se pudo eliminar el espacio')
+                    setWsToDelete(null)
+                  } finally {
+                    setDeletingWs(false)
+                  }
+                }}
+                className="btn bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>{deletingWs ? 'Eliminando...' : 'Sí, eliminar espacio'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteAccountModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">

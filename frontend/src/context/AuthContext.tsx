@@ -13,8 +13,9 @@ interface AuthContextValue {
   logout: () => Promise<void>
   selectWorkspace: (ws: WorkspaceInfo) => Promise<void>
   createSharedWorkspace: (name: string) => Promise<WorkspaceInfo>
+  renameWorkspace: (id: number, name: string) => Promise<WorkspaceInfo>
+  deleteWorkspace: (id: number) => Promise<void>
   reloadCatalog: () => Promise<void>
-  seedFamilyAccounts: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -38,19 +39,6 @@ export const BANK_LIST = [
   'Ibercaja',
   'Efectivo / Metálico',
   'Otra entidad',
-]
-
-export const FAMILY_ACCOUNT_PRESETS: Array<{
-  name: string
-  type: Account['type']
-  bank: string
-  color: string
-}> = [
-  { name: 'Olatz', type: 'checking', bank: 'Kutxabank', color: '#2563EB' },
-  { name: 'Iosu', type: 'checking', bank: 'Kutxabank', color: '#0EA5E9' },
-  { name: 'Tarjeta Olatz', type: 'credit_card', bank: 'Kutxabank', color: '#F59E0B' },
-  { name: 'Tarjeta Iosu', type: 'credit_card', bank: 'Kutxabank', color: '#8B5CF6' },
-  { name: 'Cuenta Común', type: 'joint', bank: 'Kutxabank', color: '#10B981' },
 ]
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -136,29 +124,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return created
   }
 
+  const renameWorkspace = async (id: number, name: string) => {
+    const updated = await Api.updateWorkspace(id, name)
+    const me = await Api.me()
+    setUser(me)
+    if (workspace?.id === id) {
+      setWorkspace(updated)
+    }
+    return updated
+  }
+
+  const deleteWorkspace = async (id: number) => {
+    await Api.deleteWorkspace(id)
+    const me = await Api.me()
+    setUser(me)
+    if (workspace?.id === id) {
+      const fallback = me.workspaces[0] || null
+      setWorkspace(fallback)
+      if (fallback) {
+        localStorage.setItem('fc_workspace_id', String(fallback.id))
+        await loadWorkspaceCatalog(fallback.id)
+      } else {
+        setAccounts([])
+        setCategories([])
+      }
+    }
+  }
+
   const reloadCatalog = useCallback(async () => {
     if (!workspace) return
     await loadWorkspaceCatalog(workspace.id)
   }, [workspace, loadWorkspaceCatalog])
-
-  const seedFamilyAccounts = async () => {
-    if (!workspace) return
-    const byName = new Map(accounts.map((a) => [a.name.toLowerCase(), a]))
-    for (const preset of FAMILY_ACCOUNT_PRESETS) {
-      if (byName.has(preset.name.toLowerCase())) continue
-      let linkedId: number | null = null
-      if (preset.type === 'credit_card') {
-        const ownerGuess = preset.name.replace(/^tarjeta\s+/i, '').trim().toLowerCase()
-        const parent = byName.get(ownerGuess)
-        if (parent && parent.type !== 'credit_card') {
-          linkedId = parent.id
-        }
-      }
-      const created = await Api.createAccount({ ...preset, linked_account_id: linkedId })
-      byName.set(created.name.toLowerCase(), created)
-    }
-    await reloadCatalog()
-  }
 
   return (
     <AuthContext.Provider
@@ -173,8 +169,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         selectWorkspace,
         createSharedWorkspace,
+        renameWorkspace,
+        deleteWorkspace,
         reloadCatalog,
-        seedFamilyAccounts,
       }}
     >
       {children}

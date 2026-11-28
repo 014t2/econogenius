@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Building2, Coins, Link2, Plus, Wallet, X } from 'lucide-react'
+import { Building2, Coins, CreditCard, Link2, Plus, Wallet, X } from 'lucide-react'
 import { Api } from '../api/client'
 import { BANK_LIST, useAuth } from '../context/AuthContext'
 import type { Account, AccountType } from '../types'
@@ -19,6 +19,8 @@ export function AccountModal({ open, onClose, onCreated }: AccountModalProps) {
   const [customBank, setCustomBank] = useState('')
   const [type, setType] = useState<AccountType>('checking')
   const [linkedAccountId, setLinkedAccountId] = useState<number | ''>('')
+  const [createLinkedCard, setCreateLinkedCard] = useState(false)
+  const [linkedCardName, setLinkedCardName] = useState('')
   const [currentBalance, setCurrentBalance] = useState('')
   const [iban, setIban] = useState('')
   const [cardNumber, setCardNumber] = useState('')
@@ -45,12 +47,24 @@ export function AccountModal({ open, onClose, onCreated }: AccountModalProps) {
         name: name.trim(),
         type,
         bank,
-        iban: iban.trim() || null,
-        card_number: cardNumber.trim() || null,
+        iban: type !== 'credit_card' ? iban.trim() || null : null,
+        card_number: type === 'credit_card' ? cardNumber.trim() || null : null,
         linked_account_id: type === 'credit_card' && linkedAccountId !== '' ? Number(linkedAccountId) : null,
         initial_balance: Number.isFinite(parsedBalance) ? parsedBalance : 0,
         current_balance: Number.isFinite(parsedBalance) ? parsedBalance : 0,
       })
+      if (type !== 'credit_card' && createLinkedCard) {
+        const cardTitle = linkedCardName.trim() || `Tarjeta ${name.trim()}`
+        await Api.createAccount({
+          name: cardTitle,
+          type: 'credit_card',
+          bank,
+          card_number: cardNumber.trim() || null,
+          linked_account_id: created.id,
+          initial_balance: 0,
+          current_balance: 0,
+        })
+      }
       await reloadCatalog()
       onCreated?.(created)
       setName('')
@@ -58,6 +72,8 @@ export function AccountModal({ open, onClose, onCreated }: AccountModalProps) {
       setIban('')
       setCardNumber('')
       setLinkedAccountId('')
+      setCreateLinkedCard(false)
+      setLinkedCardName('')
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo crear la cuenta')
@@ -102,7 +118,7 @@ export function AccountModal({ open, onClose, onCreated }: AccountModalProps) {
             <input
               type="text"
               required
-              placeholder="Ej. Cuenta Nómina Olatz / Común"
+              placeholder="Ej. Cuenta Nómina / Cuenta Común"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="input"
@@ -231,13 +247,58 @@ export function AccountModal({ open, onClose, onCreated }: AccountModalProps) {
           </div>
         )}
 
+        {type !== 'credit_card' && (
+          <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-2.5">
+            <label className="flex items-center gap-2 text-xs font-bold text-amber-950 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={createLinkedCard}
+                onChange={(e) => setCreateLinkedCard(e.target.checked)}
+                className="rounded text-amber-600"
+              />
+              <CreditCard className="h-4 w-4 text-amber-600 shrink-0" />
+              <span>Crear también su tarjeta vinculada (2 cuentas: Cuenta + Tarjeta)</span>
+            </label>
+            {createLinkedCard && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                <div>
+                  <label className="label">Nombre de la tarjeta</label>
+                  <input
+                    type="text"
+                    placeholder={`Tarjeta ${name.trim() || 'Principal'}`}
+                    value={linkedCardName}
+                    onChange={(e) => setLinkedCardName(e.target.value)}
+                    className="input text-xs bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="label">Nº Tarjeta (opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="4921 0740 ..."
+                    value={cardNumber}
+                    onChange={(e) => setCardNumber(e.target.value)}
+                    className="input text-xs bg-white"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex justify-end gap-2 pt-2 border-t border-line">
           <button type="button" onClick={onClose} className="btn-outline text-xs">
             Cancelar
           </button>
           <button type="submit" disabled={submitting} className="btn-accent text-xs sm:text-sm">
             <Plus className="h-4 w-4" />
-            <span>{submitting ? 'Guardando cuenta...' : 'Crear cuenta con este saldo'}</span>
+            <span>
+              {submitting
+                ? 'Guardando...'
+                : type !== 'credit_card' && createLinkedCard
+                ? 'Crear Cuenta + Tarjeta (2 cuentas)'
+                : 'Crear cuenta con este saldo'}
+            </span>
           </button>
         </div>
       </form>
